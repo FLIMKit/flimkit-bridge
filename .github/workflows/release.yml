@@ -1,0 +1,42 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build the package
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+          body: |
+            The local HTTP server FLIMKit image analysis clients talk to.
+
+            ```
+            pip install flimkit-bridge
+            ```
+
+            That pulls FLIMKit with it. The server then starts with FLIMKit, and `flimkit-bridge` is on the path as well for the server without the FLIMKit window.
+
+            The QuPath extension and the Fiji add-on are both clients of this server. Install the jar for whichever you use.
+
+            The wheel and sdist are attached below for anyone installing offline, or into `~/.flimkit/plugins/`.

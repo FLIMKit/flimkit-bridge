@@ -9,7 +9,7 @@ def test_api_version_matches():
 
 
 def test_tool_is_registered():
-    found = plugins.get_tool('qupath_bridge_open')
+    found = plugins.get_tool('flimkit_bridge_open')
     assert found is not None
     assert found.menu_path == ('Tools',)
     assert callable(found.callback)
@@ -17,4 +17,9 @@ def test_tool_is_registered():
 
 def test_entry_point_is_declared():
     names = [e.name for e in entry_points(group='flimkit.plugins')]
-    assert 'qupath_bridge' in names
+    assert 'flimkit_bridge' in names
+
+
+def test_the_tool_is_not_named_after_one_client():
+    assert plugins.get_tool('qupath_bridge_open') is None
+    assert plugins.get_tool('fiji_bridge_open') is None
