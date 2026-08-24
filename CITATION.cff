@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use flimkit-bridge, please cite it using the metadata below."
+title: flimkit-bridge
+authors:
+  - family-names: Hunt
+    given-names: Alexander
+    affiliation: "Centre for Inflammation Research, Institute for Regeneration and Repair, University of Edinburgh, Edinburgh, UK"
+    orcid: "https://orcid.org/0009-0006-2990-649X"
+  - family-names: Akram
+    given-names: Ahsan
+    affiliation: "University of Edinburgh"
+    orcid: "https://orcid.org/0000-0003-4605-1682"
+type: software
+license: MIT
+version: 0.6.0
+date-released: 2026-08-24
+repository-code: 'https://github.com/FLIMKit/flimkit-bridge'
+keywords:
+  - FLIM
+  - FLIMKit
+  - QuPath
+  - Fiji
+  - fluorescence
+  - lifetime
+  - microscopy
