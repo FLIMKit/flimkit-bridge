@@ -1,0 +1,29 @@
+[build-system]
+requires = ['setuptools>=68']
+build-backend = 'setuptools.build_meta'
+
+[project]
+name = 'flimkit-bridge'
+version = '0.6.0'
+description = 'The local HTTP server FLIMKit image analysis clients talk to'
+readme = 'README.md'
+requires-python = '>=3.12'
+license = 'MIT'
+authors = [{ name = 'Alex Hunt', email = 'alexander.hunt@ed.ac.uk' }]
+dependencies = [
+    'flimkit>=0.13.2',
+    'numpy',
+    'tifffile',
+]
+
+[project.optional-dependencies]
+test = ['pytest']
+
+[project.scripts]
+flimkit-bridge = 'flimkit_bridge.headless:main'
+
+[project.entry-points.'flimkit.plugins']
+flimkit_bridge = 'flimkit_bridge'
+
+[tool.setuptools.packages.find]
+include = ['flimkit_bridge*']
