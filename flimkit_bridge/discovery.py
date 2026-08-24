@@ -3,7 +3,10 @@ import os
 import time
 from pathlib import Path
 
-FILENAME = 'qupath-bridge.json'
+FILENAME = 'bridge.json'
+LEGACY_FILENAME = 'qupath-bridge.json'
+PROTOCOL = 'flimkit-bridge'
+LEGACY_PROTOCOL = 'flimkit-qupath'
 
 
 def discovery_dir():
@@ -18,13 +21,21 @@ def write(url, token, pid=None, path=None):
     target = Path(path) if path is not None else discovery_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        'protocol': 'flimkit-qupath',
+        'protocol': PROTOCOL,
         'protocol_version': 1,
         'url': url,
         'token': token,
         'pid': os.getpid() if pid is None else int(pid),
         'started': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
     }
+    _write_atomic(target, payload)
+    legacy = dict(payload)
+    legacy['protocol'] = LEGACY_PROTOCOL
+    _write_atomic(target.parent / LEGACY_FILENAME, legacy)
+    return target
+
+
+def _write_atomic(target, payload):
     tmp = target.with_suffix('.tmp')
     with open(tmp, 'w', encoding='utf-8') as handle:
         json.dump(payload, handle, indent=2)
@@ -33,7 +44,6 @@ def write(url, token, pid=None, path=None):
     except OSError:
         pass
     os.replace(tmp, target)
-    return target
 
 
 def read(path=None):
@@ -43,7 +53,7 @@ def read(path=None):
             payload = json.load(handle)
     except (OSError, ValueError):
         return None
-    if payload.get('protocol') != 'flimkit-qupath':
+    if payload.get('protocol') not in (PROTOCOL, LEGACY_PROTOCOL):
         return None
     if not payload.get('url') or not payload.get('token'):
         return None
@@ -101,7 +111,8 @@ def read_live(path=None):
 
 def remove(path=None):
     target = Path(path) if path is not None else discovery_path()
-    try:
-        target.unlink()
-    except OSError:
-        pass
+    for each in (target, target.parent / LEGACY_FILENAME):
+        try:
+            each.unlink()
+        except OSError:
+            pass

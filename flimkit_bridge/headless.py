@@ -56,28 +56,28 @@ def main(argv=None):
     if announce and not args.force:
         other = running_bridge()
         if other is not None:
-            print(f'[QuPath bridge] another bridge is already serving on '
+            print(f'[FLIMKit bridge] another bridge is already serving on '
                   f'{other["url"]} (pid {other.get("pid")})')
-            print('[QuPath bridge] stop it, or pass --force to take over '
+            print('[FLIMKit bridge] stop it, or pass --force to take over '
                   'the discovery file, or --no-announce to run alongside it')
             return 1
     try:
         server, url, token = serve(args.host, args.port, args.token or None, announce)
     except OSError as exc:
-        print(f'[QuPath bridge] could not bind {args.host}:{args.port}: {exc}')
+        print(f'[FLIMKit bridge] could not bind {args.host}:{args.port}: {exc}')
         return 1
     if args.port and url != f'http://{args.host}:{args.port}':
-        print(f'[QuPath bridge] port {args.port} was busy, using {url}')
-    print(f'[QuPath bridge] listening on {url}')
+        print(f'[FLIMKit bridge] port {args.port} was busy, using {url}')
+    print(f'[FLIMKit bridge] listening on {url}')
     if announce:
-        print(f'[QuPath bridge] details written to {discovery.discovery_path()}')
+        print(f'[FLIMKit bridge] details written to {discovery.discovery_path()}')
     else:
-        print(f'[QuPath bridge] token {token}')
-    print('[QuPath bridge] no GUI, Ctrl-C to stop')
+        print(f'[FLIMKit bridge] token {token}')
+    print('[FLIMKit bridge] no GUI, Ctrl-C to stop')
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print('[QuPath bridge] stopping')
+        print('[FLIMKit bridge] stopping')
     finally:
         server.shutdown()
         server.server_close()

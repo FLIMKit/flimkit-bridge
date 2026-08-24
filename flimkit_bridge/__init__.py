@@ -18,7 +18,7 @@ from flimkit_bridge.server import bind
 
 FLIMKIT_PLUGIN_API = 1
 
-PLUGIN_NAME = 'qupath_bridge'
+PLUGIN_NAME = 'flimkit_bridge'
 
 DEFAULT_PORT = 8765
 
@@ -60,7 +60,7 @@ def _start_server(app, port=DEFAULT_PORT):
     return _state
 
 
-@startup('qupath_bridge_server', order=200)
+@startup('flimkit_bridge_server', order=200)
 def start_bridge(app):
     if _state['server'] is not None:
         return
@@ -70,21 +70,21 @@ def start_bridge(app):
         _start_server(app, port)
     except OSError as exc:
         _state['error'] = str(exc)
-        print(f'[QuPath bridge] could not bind a port: {exc}')
+        print(f'[FLIMKit bridge] could not bind a port: {exc}')
         return
     if _state['url'] != f'http://127.0.0.1:{port}':
-        print(f'[QuPath bridge] port {port} was busy, using {_state["url"]}')
-    print(f'[QuPath bridge] listening on {_state["url"]}')
-    print(f'[QuPath bridge] details written to {discovery.discovery_path()}')
+        print(f'[FLIMKit bridge] port {port} was busy, using {_state["url"]}')
+    print(f'[FLIMKit bridge] listening on {_state["url"]}')
+    print(f'[FLIMKit bridge] details written to {discovery.discovery_path()}')
 
 
-@panel_button('qupath_bridge_send', 'Send to QuPath', panel='roi', order=200)
-def send_to_qupath(app):
+@panel_button('flimkit_bridge_send', 'Send to a viewer', panel='roi', order=200)
+def send_to_clients(app):
     from tkinter import messagebox
     server = _state['server']
     if server is None:
         messagebox.showerror(
-            'QuPath bridge',
+            'FLIMKit bridge',
             'The bridge is not running.\n\n'
             + (_state['error'] or 'It failed to start with FLIMKit.'),
             parent=getattr(app, 'root', None),
@@ -92,11 +92,11 @@ def send_to_qupath(app):
         return
     if not server.state.connected:
         messagebox.showerror(
-            'QuPath is not connected',
-            'No QuPath instance has connected to FLIMKit yet.\n\n'
+            'No viewer is connected',
+            'Nothing has connected to FLIMKit yet.\n\n'
             'Start QuPath, then choose\n'
             'Extensions > FLIMKit bridge > Connect...\n\n'
-            'QuPath finds the address and token itself, from\n'
+            'It finds the address and token itself, from\n'
             f'{discovery.discovery_path()}',
             parent=getattr(app, 'root', None),
         )
@@ -105,13 +105,13 @@ def send_to_qupath(app):
     names = sorted(images.get('images', {}))
     if not names:
         messagebox.showerror(
-            'QuPath bridge',
+            'FLIMKit bridge',
             'There is nothing to send yet. Fit a dataset first.',
             parent=getattr(app, 'root', None),
         )
         return
     messagebox.showinfo(
-        'QuPath bridge',
+        'FLIMKit bridge',
         'FLIMKit is serving ' + ', '.join(names) + '.\n\n'
         'In QuPath choose\n'
         'Extensions > FLIMKit bridge > Add FLIMKit images to project',
@@ -119,12 +119,12 @@ def send_to_qupath(app):
     )
 
 
-@tool(id='qupath_bridge_open', label='QuPath Bridge...', menu='Tools', order=510)
+@tool(id='flimkit_bridge_open', label='FLIMKit Bridge...', menu='Tools', order=510)
 def open_bridge(app):
     from tkinter import messagebox
     if _state['server'] is None:
         messagebox.showerror(
-            'QuPath bridge',
+            'FLIMKit bridge',
             'The bridge is not running.\n\n'
             + (_state['error'] or 'It failed to start with FLIMKit.'),
             parent=getattr(app, 'root', None),
@@ -132,9 +132,9 @@ def open_bridge(app):
         return
     connected = 'yes' if _state['server'].state.connected else 'no'
     messagebox.showinfo(
-        'QuPath bridge',
+        'FLIMKit bridge',
         f'Address: {_state["url"]}\n'
-        f'QuPath connected: {connected}\n\n'
+        f'A viewer is connected: {connected}\n\n'
         f'Pairing details: {discovery.discovery_path()}\n\n'
         'In QuPath choose\n'
         'Extensions > FLIMKit bridge > Connect...',

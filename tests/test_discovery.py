@@ -121,3 +121,67 @@ def test_status_reports_both_versions():
     assert found['protocol_version'] == 1
     assert found['bridge_version'] not in (None, '')
     assert found['flimkit_version'] not in (None, '')
+
+
+def test_the_neutral_name_is_what_is_written(tmp_path):
+    path = discovery.write('http://127.0.0.1:8765', 'abc',
+                           path=tmp_path / discovery.FILENAME)
+
+    assert path.name == 'bridge.json'
+    assert path.exists()
+
+
+def test_the_old_name_is_written_alongside_it(tmp_path):
+    discovery.write('http://127.0.0.1:8765', 'abc',
+                    path=tmp_path / discovery.FILENAME)
+
+    legacy = tmp_path / discovery.LEGACY_FILENAME
+    assert legacy.exists(), (
+        'QuPath extensions 0.3.0 to 0.5.0 read qupath-bridge.json and stop '
+        'pairing without it')
+
+
+def test_both_files_carry_the_same_address(tmp_path):
+    discovery.write('http://127.0.0.1:8765', 'abc',
+                    path=tmp_path / discovery.FILENAME)
+
+    current = json.loads((tmp_path / discovery.FILENAME).read_text())
+    legacy = json.loads((tmp_path / discovery.LEGACY_FILENAME).read_text())
+    assert current['url'] == legacy['url']
+    assert current['token'] == legacy['token']
+
+
+def test_the_legacy_file_keeps_the_protocol_the_extension_checks(tmp_path):
+    discovery.write('http://127.0.0.1:8765', 'abc',
+                    path=tmp_path / discovery.FILENAME)
+
+    legacy = json.loads((tmp_path / discovery.LEGACY_FILENAME).read_text())
+    assert legacy['protocol'] == 'flimkit-qupath', (
+        'Discovery.java line 35 refuses any other value, so changing it stops '
+        'every installed extension pairing')
+
+
+def test_the_new_file_is_not_named_after_a_client(tmp_path):
+    discovery.write('http://127.0.0.1:8765', 'abc',
+                    path=tmp_path / discovery.FILENAME)
+
+    current = json.loads((tmp_path / discovery.FILENAME).read_text())
+    assert current['protocol'] == 'flimkit-bridge'
+
+
+def test_reading_accepts_either_protocol(tmp_path):
+    discovery.write('http://127.0.0.1:8765', 'abc',
+                    path=tmp_path / discovery.FILENAME)
+
+    assert discovery.read(tmp_path / discovery.FILENAME)['token'] == 'abc'
+    assert discovery.read(tmp_path / discovery.LEGACY_FILENAME)['token'] == 'abc'
+
+
+def test_removing_takes_both(tmp_path):
+    discovery.write('http://127.0.0.1:8765', 'abc',
+                    path=tmp_path / discovery.FILENAME)
+
+    discovery.remove(path=tmp_path / discovery.FILENAME)
+
+    assert not (tmp_path / discovery.FILENAME).exists()
+    assert not (tmp_path / discovery.LEGACY_FILENAME).exists()
