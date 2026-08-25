@@ -14,7 +14,7 @@ PHASOR_SCHEMA = (
     {'key': 'filter_size', 'label': 'Median window (px)', 'type': 'int',
      'min': 3, 'max': 15, 'applies_to': ('phasor',), 'advanced': True,
      'default': 3},
-    {'key': 'irf', 'label': 'IRF calibration', 'type': 'choice',
+    {'key': 'irf', 'label': 'IRF calibration', 'type': 'path',
      'applies_to': ('phasor',), 'advanced': False, 'default': 'none'},
 )
 
@@ -22,11 +22,13 @@ _NOTHING = ('', 'none', 'None', 'null')
 
 
 def _choices(key):
-    if key == 'phasor_filter':
-        from flimkit.phasor.filters import phasor_filter_methods
-        return ['none'] + list(phasor_filter_methods())
+    from flimkit.phasor.filters import phasor_filter_methods
+    return ['none'] + list(phasor_filter_methods())
+
+
+def installed_irfs():
     from flimkit_bridge import irf as irf_module
-    return ['none'] + [entry['id'] for entry in irf_module.available()]
+    return [entry['id'] for entry in irf_module.available()]
 
 
 def settings():
@@ -42,6 +44,8 @@ def settings():
                 described[optional] = entry[optional]
         if entry['type'] == 'choice':
             described['choices'] = _choices(entry['key'])
+        if entry['key'] == 'irf':
+            described['installed'] = installed_irfs()
         values[entry['key']] = entry['default']
         schema.append(described)
     return {'values': values, 'schema': schema}
@@ -283,22 +287,75 @@ def compute(path, channel=None, binning=4, options=None):
     }
     irf_path = resolve_irf(found_options['irf'])
     if irf_path:
-        found.update(_calibrate(found, handle, irf_path, stack))
+        found.update(_calibrate(found, handle, irf_path, stack, channel=channel))
     found['real'], found['imag'] = apply_filter(
         found['real'], found['imag'], found['mean'], found_options)
     return found
 
 
-def _calibrate(found, handle, irf_path, stack):
+_WORKBOOK = ('.xlsx', '.xlsm', '.xls')
+
+
+def _irf_from_reference(reference, channel=None):
+    counts = np.asarray(reference.summed_decay(channel=channel), dtype=float)
+    if counts.sum() <= 0:
+        raise ValueError(
+            'the reference measurement has no photons, so it cannot be used as '
+            'an instrument response')
+    time_ns = np.asarray(getattr(reference, 'time_ns', None), dtype=float)
+    if time_ns is None or time_ns.size != counts.size:
+        raise ValueError(
+            'the reference measurement carries no per-bin time axis, so its '
+            'decay cannot be placed against the data')
+    return time_ns, counts
+
+
+def _pqres_irf(irf_path):
+    import ptufile
+    with ptufile.PqFile(str(irf_path)) as handle:
+        x = handle.tags.get('VarOverallDecayX')
+        y = handle.tags.get('VarOverallDecayY')
+    if x is None or y is None:
+        raise ValueError(
+            f'{irf_path} carries no overall decay, so there is no instrument '
+            f'response in it. Export a result that includes the TCSPC curve, '
+            f'or point at the reference measurement itself.')
+    time_ns = np.asarray(x, dtype=float) * 1e9
+    counts = np.asarray(y, dtype=float)
+    if counts.sum() <= 0:
+        raise ValueError(f'the decay in {irf_path} has no photons')
+    return time_ns, counts
+
+
+def _reference_irf(irf_path, channel=None):
+    if str(irf_path).lower().endswith('.pqres'):
+        return _pqres_irf(irf_path)
+    from flimkit.formats import FLIMFile
+    try:
+        reference = FLIMFile(str(irf_path), verbose=False)
+    except Exception as exc:
+        raise ValueError(
+            f'FLIMKit cannot read {irf_path} as an instrument response. Use a '
+            f'machine IRF .npy, an IRF workbook, a PicoQuant .pqres result '
+            f'carrying its overall decay, or a reference measurement in a '
+            f'format FLIMKit reads such as .ptu or .sdt: {exc}')
+    return _irf_from_reference(reference, channel=channel)
+
+
+def _calibrate(found, handle, irf_path, stack, channel=None):
     from flimkit.phasor.signal import (calibrate_signal_with_irf,
                                        calibrate_signal_with_machine_irf)
     signal = _signal_array(stack, handle, found['frequency'])
-    if str(irf_path).endswith('.npy'):
+    lowered = str(irf_path).lower()
+    if lowered.endswith('.npy'):
         real_cal, imag_cal = calibrate_signal_with_machine_irf(
             signal, found['real'], found['imag'], irf_path, found['frequency'])
     else:
-        from flimkit.phasor.signal import get_phasor_irf
-        irf_time_ns, irf_counts = get_phasor_irf(irf_path)
+        if lowered.endswith(_WORKBOOK):
+            from flimkit.phasor.signal import get_phasor_irf
+            irf_time_ns, irf_counts = get_phasor_irf(irf_path)
+        else:
+            irf_time_ns, irf_counts = _reference_irf(irf_path, channel=channel)
         real_cal, imag_cal = calibrate_signal_with_irf(
             signal, found['real'], found['imag'], irf_time_ns, irf_counts,
             found['frequency'])

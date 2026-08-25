@@ -237,15 +237,14 @@ def test_settings_lists_the_registered_filters():
     assert found['values']['phasor_filter'] == 'none'
 
 
-def test_settings_offers_every_installed_machine_irf():
+def test_settings_lists_every_installed_machine_irf():
     from flimkit_bridge import irf as irf_module
 
     found = phasor.settings()
 
     entry = next(e for e in found['schema'] if e['key'] == 'irf')
-    assert entry['choices'][0] == 'none'
     for installed in irf_module.available():
-        assert installed['id'] in entry['choices']
+        assert installed['id'] in entry['installed']
 
 
 def test_normalise_fills_the_defaults():
@@ -495,3 +494,79 @@ def test_a_polygon_reports_lifetimes_like_an_ellipse(two_populations):
     assert found[0]['n_pixels'] == 128
     assert found[0]['tau_phi_ns'] > 0
     assert found[0]['mean_g'] == pytest.approx(0.30, abs=0.01)
+
+
+def test_the_irf_setting_is_a_path_field():
+    found = phasor.settings()
+
+    entry = next(e for e in found['schema'] if e['key'] == 'irf')
+    assert entry['type'] == 'path', (
+        'a dropdown cannot point at a reference measurement on disk')
+
+
+def test_resolve_irf_still_accepts_an_installed_id():
+    from flimkit_bridge import irf as irf_module
+
+    installed = irf_module.available()
+    if not installed:
+        pytest.skip('no machine IRF installed')
+    assert phasor.resolve_irf(installed[0]['id']) == installed[0]['path']
+
+
+def test_a_reference_measurement_is_read_as_a_decay(tmp_path):
+    class Reference:
+        time_ns = np.arange(64) * 0.05
+
+        def summed_decay(self, channel=None):
+            counts = np.zeros(64)
+            counts[8] = 100.0
+            counts[9] = 40.0
+            return counts
+
+    irf_time_ns, irf_counts = phasor._irf_from_reference(Reference())
+
+    assert irf_time_ns[8] == pytest.approx(0.4)
+    assert irf_counts[8] == 100.0
+    assert irf_counts.sum() == 140.0
+
+
+def test_a_reference_with_no_photons_is_refused():
+    class Empty:
+        time_ns = np.arange(64) * 0.05
+
+        def summed_decay(self, channel=None):
+            return np.zeros(64)
+
+    with pytest.raises(ValueError, match='no photons'):
+        phasor._irf_from_reference(Empty())
+
+
+def test_an_unreadable_reference_says_what_is_supported(tmp_path):
+    bogus = tmp_path / 'reference.pqres'
+    bogus.write_bytes(b'not a flim file')
+
+    with pytest.raises(ValueError, match='pqres'):
+        phasor._reference_irf(str(bogus))
+
+
+def test_a_pqres_result_gives_its_overall_decay():
+    import os
+    sample = '/Users/as-hunt/Downloads/Picoquant/ATTO488_2_OTCSPC.pqres'
+    if not os.path.exists(sample):
+        pytest.skip('no .pqres sample on this machine')
+
+    time_ns, counts = phasor._reference_irf(sample)
+
+    assert time_ns.size == counts.size
+    assert counts.sum() > 0
+    assert time_ns[-1] > time_ns[0]
+
+
+def test_a_pqres_without_a_decay_says_so():
+    import os
+    sample = '/Users/as-hunt/Downloads/Picoquant/TCSPC_Fitting_1.pqres'
+    if not os.path.exists(sample):
+        pytest.skip('no .pqres sample on this machine')
+
+    with pytest.raises(ValueError, match='no overall decay'):
+        phasor._reference_irf(sample)
