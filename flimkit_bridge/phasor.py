@@ -310,16 +310,35 @@ def _irf_from_reference(reference, channel=None):
     return time_ns, counts
 
 
+def _pqres_irf(irf_path):
+    import ptufile
+    with ptufile.PqFile(str(irf_path)) as handle:
+        x = handle.tags.get('VarOverallDecayX')
+        y = handle.tags.get('VarOverallDecayY')
+    if x is None or y is None:
+        raise ValueError(
+            f'{irf_path} carries no overall decay, so there is no instrument '
+            f'response in it. Export a result that includes the TCSPC curve, '
+            f'or point at the reference measurement itself.')
+    time_ns = np.asarray(x, dtype=float) * 1e9
+    counts = np.asarray(y, dtype=float)
+    if counts.sum() <= 0:
+        raise ValueError(f'the decay in {irf_path} has no photons')
+    return time_ns, counts
+
+
 def _reference_irf(irf_path, channel=None):
+    if str(irf_path).lower().endswith('.pqres'):
+        return _pqres_irf(irf_path)
     from flimkit.formats import FLIMFile
     try:
         reference = FLIMFile(str(irf_path), verbose=False)
     except Exception as exc:
         raise ValueError(
             f'FLIMKit cannot read {irf_path} as an instrument response. Use a '
-            f'machine IRF .npy, an IRF workbook, or a reference measurement in '
-            f'a format FLIMKit reads such as .ptu or .sdt. PicoQuant .pqres '
-            f'result files are not supported: {exc}')
+            f'machine IRF .npy, an IRF workbook, a PicoQuant .pqres result '
+            f'carrying its overall decay, or a reference measurement in a '
+            f'format FLIMKit reads such as .ptu or .sdt: {exc}')
     return _irf_from_reference(reference, channel=channel)
 
 

@@ -547,3 +547,26 @@ def test_an_unreadable_reference_says_what_is_supported(tmp_path):
 
     with pytest.raises(ValueError, match='pqres'):
         phasor._reference_irf(str(bogus))
+
+
+def test_a_pqres_result_gives_its_overall_decay():
+    import os
+    sample = '/Users/as-hunt/Downloads/Picoquant/ATTO488_2_OTCSPC.pqres'
+    if not os.path.exists(sample):
+        pytest.skip('no .pqres sample on this machine')
+
+    time_ns, counts = phasor._reference_irf(sample)
+
+    assert time_ns.size == counts.size
+    assert counts.sum() > 0
+    assert time_ns[-1] > time_ns[0]
+
+
+def test_a_pqres_without_a_decay_says_so():
+    import os
+    sample = '/Users/as-hunt/Downloads/Picoquant/TCSPC_Fitting_1.pqres'
+    if not os.path.exists(sample):
+        pytest.skip('no .pqres sample on this machine')
+
+    with pytest.raises(ValueError, match='no overall decay'):
+        phasor._reference_irf(sample)
