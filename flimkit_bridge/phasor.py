@@ -16,6 +16,9 @@ PHASOR_SCHEMA = (
      'default': 3},
     {'key': 'irf', 'label': 'IRF calibration', 'type': 'path',
      'applies_to': ('phasor',), 'advanced': False, 'default': 'none'},
+    {'key': 'irf_lifetime_ns', 'label': 'Reference lifetime (ns, 0 for scatter)',
+     'type': 'float', 'min': 0.0, 'max': 100.0, 'applies_to': ('phasor',),
+     'advanced': False, 'default': 0.0},
 )
 
 _NOTHING = ('', 'none', 'None', 'null')
@@ -74,7 +77,7 @@ def normalise(options):
 def cache_key(ident, options):
     found = normalise(options)
     return (ident, found['phasor_filter'], found['filter_sigma'],
-            found['filter_size'], found['irf'])
+            found['filter_size'], found['irf'], found['irf_lifetime_ns'])
 
 
 def apply_filter(real, imag, mean, options):
@@ -287,7 +290,8 @@ def compute(path, channel=None, binning=4, options=None):
     }
     irf_path = resolve_irf(found_options['irf'])
     if irf_path:
-        found.update(_calibrate(found, handle, irf_path, stack, channel=channel))
+        found.update(_calibrate(found, handle, irf_path, stack, channel=channel,
+                                lifetime_ns=found_options['irf_lifetime_ns']))
     found['real'], found['imag'] = apply_filter(
         found['real'], found['imag'], found['mean'], found_options)
     return found
@@ -342,11 +346,37 @@ def _reference_irf(irf_path, channel=None):
     return _irf_from_reference(reference, channel=channel)
 
 
-def _calibrate(found, handle, irf_path, stack, channel=None):
+def _calibrate_against_lifetime(found, irf_time_ns, irf_counts, lifetime_ns):
+    from phasorpy.phasor import phasor_from_signal
+    from phasorpy.lifetime import phasor_calibrate
+    counts = np.asarray(irf_counts, dtype=float)[np.newaxis, :]
+    ref_mean, ref_real, ref_imag = phasor_from_signal(counts, axis=-1)
+    real_cal, imag_cal = phasor_calibrate(
+        found['real'], found['imag'],
+        ref_mean, ref_real, ref_imag,
+        found['frequency'], lifetime_ns)
+    return real_cal, imag_cal
+
+
+def _calibrate(found, handle, irf_path, stack, channel=None, lifetime_ns=0.0):
     from flimkit.phasor.signal import (calibrate_signal_with_irf,
                                        calibrate_signal_with_machine_irf)
     signal = _signal_array(stack, handle, found['frequency'])
     lowered = str(irf_path).lower()
+    if lifetime_ns > 0:
+        if lowered.endswith('.npy'):
+            irf_counts = np.load(str(irf_path))
+            irf_time_ns = np.arange(len(irf_counts), dtype=float)
+        elif lowered.endswith(_WORKBOOK):
+            from flimkit.phasor.signal import get_phasor_irf
+            irf_time_ns, irf_counts = get_phasor_irf(irf_path)
+        else:
+            irf_time_ns, irf_counts = _reference_irf(irf_path, channel=channel)
+        real_cal, imag_cal = _calibrate_against_lifetime(
+            found, irf_time_ns, irf_counts, lifetime_ns)
+        return {'real': _first_harmonic(real_cal),
+                'imag': _first_harmonic(imag_cal),
+                'calibrated': True}
     if lowered.endswith('.npy'):
         real_cal, imag_cal = calibrate_signal_with_machine_irf(
             signal, found['real'], found['imag'], irf_path, found['frequency'])

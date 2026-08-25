@@ -570,3 +570,39 @@ def test_a_pqres_without_a_decay_says_so():
 
     with pytest.raises(ValueError, match='no overall decay'):
         phasor._reference_irf(sample)
+
+
+def test_the_reference_lifetime_is_a_setting():
+    found = phasor.settings()
+
+    entry = next(e for e in found['schema'] if e['key'] == 'irf_lifetime_ns')
+    assert entry['type'] == 'float'
+    assert found['values']['irf_lifetime_ns'] == 0.0
+
+
+def test_a_zero_lifetime_reference_is_treated_as_scatter():
+    assert phasor.normalise({})['irf_lifetime_ns'] == 0.0
+    assert phasor.normalise({'irf_lifetime_ns': '4.1'})['irf_lifetime_ns'] == 4.1
+
+
+def test_the_reference_lifetime_changes_the_cache_key():
+    scatter = phasor.cache_key('d1', {'irf': 'ref.ptu'})
+    dye = phasor.cache_key('d1', {'irf': 'ref.ptu', 'irf_lifetime_ns': 4.1})
+
+    assert scatter != dye
+
+
+def test_a_known_lifetime_reference_lands_on_the_semicircle():
+    import os
+    sample = '/Users/as-hunt/Downloads/Picoquant/ATTO488_2_OTCSPC.pqres'
+    data = '/Users/as-hunt/Downloads/flimkit_synth_validation/bi_01.ptu'
+    if not (os.path.exists(sample) and os.path.exists(data)):
+        pytest.skip('no PicoQuant sample on this machine')
+
+    found = phasor.compute(data, options={'irf': sample, 'irf_lifetime_ns': 4.1})
+
+    g = float(np.nanmean(found['real']))
+    s = float(np.nanmean(found['imag']))
+    assert s > 0, f'S must be positive on a real phasor, got {s}'
+    assert (g - 0.5) ** 2 + s ** 2 <= 0.30, (
+        f'G {g:.3f} S {s:.3f} sits far outside the universal semicircle')
