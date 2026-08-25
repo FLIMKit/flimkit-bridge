@@ -251,7 +251,7 @@ def test_normalise_fills_the_defaults():
     found = phasor.normalise(None)
 
     assert found == {'phasor_filter': 'none', 'filter_sigma': 1.0,
-                     'filter_size': 3, 'irf': 'none'}
+                     'filter_size': 3, 'irf': 'none', 'irf_lifetime_ns': 0.0}
 
 
 def test_normalise_coerces_the_wire_types():
