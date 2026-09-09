@@ -108,6 +108,12 @@ def create_server(host: str, port: int, token: str, state: BridgeState,
                     return
                 self._route(lambda r: r.pipeline_defaults(state))
                 return
+            if self.path == '/v1/zstack/defaults':
+                if not self._authorized():
+                    self.send_error(401)
+                    return
+                self._route(lambda r: r.zstack_defaults(state))
+                return
             if self.path == '/v1/phasor/settings':
                 if not self._authorized():
                     self.send_error(401)
@@ -199,6 +205,24 @@ def create_server(host: str, port: int, token: str, state: BridgeState,
                     return
                 self._route(lambda routes: routes.run_pipeline(state, self._read_json()))
                 return
+            if self.path == '/v1/zstack/scan':
+                if not self._authorized():
+                    self.send_error(401)
+                    return
+                self._route(lambda routes: routes.scan_zstack(state, self._read_json()))
+                return
+            if self.path == '/v1/zstack/export':
+                if not self._authorized():
+                    self.send_error(401)
+                    return
+                self._route(lambda routes: routes.export_zstack(state, self._read_json()))
+                return
+            if self.path == '/v1/zstack':
+                if not self._authorized():
+                    self.send_error(401)
+                    return
+                self._route(lambda routes: routes.run_zstack(state, self._read_json()))
+                return
             from flimkit_bridge import dataset_routes as _routes
             stats_match = _routes.PLANE_STATS_RE.match(self.path)
             if stats_match:
@@ -281,6 +305,12 @@ def create_server(host: str, port: int, token: str, state: BridgeState,
         def _dataset_get(self):
             from flimkit_bridge import dataset_routes as routes
             parsed = urlparse(self.path)
+            if parsed.path == routes.ZSTACK_VOLUME_PATH:
+                if not self._authorized():
+                    self.send_error(401)
+                    return True
+                self._send_volume(parsed.query)
+                return True
             if parsed.path == '/v1/datasets':
                 if not self._authorized():
                     self.send_error(401)
@@ -334,6 +364,41 @@ def create_server(host: str, port: int, token: str, state: BridgeState,
                 self._route(lambda r: r.dataset(state, found.group(1)))
                 return True
             return False
+
+        def _send_volume(self, query):
+            import shutil
+
+            from flimkit_bridge import dataset_routes as routes
+            try:
+                built = routes.zstack_volume(state, query)
+            except routes.RouteError as problem:
+                self.send_error(problem.status, str(problem))
+                return
+            except Exception as exc:
+                self.send_error(500, str(exc))
+                return
+            # A fitted stack can be gigabytes, so it goes out of a file in
+            # blocks rather than through one bytes object in memory.
+            try:
+                size = os.path.getsize(built['file'])
+                self.send_response(200)
+                self.send_header('Content-Type', 'image/tiff')
+                self.send_header('Content-Length', str(size))
+                self.send_header('X-FLIMKit-Volume-Label', built['label'])
+                self.send_header('X-FLIMKit-Volume-Axes', 'ZCYX')
+                self.send_header('X-FLIMKit-Volume-Channels',
+                                 ','.join(built['channels']))
+                self.send_header('X-FLIMKit-Volume-Units',
+                                 ','.join(built['units']))
+                self.send_header('X-FLIMKit-Volume-Shape',
+                                 ','.join(str(n) for n in built['shape']))
+                self.send_header('X-FLIMKit-Voxel-Size-Um',
+                                 ','.join(str(v) for v in built['voxel_size_um']))
+                self.end_headers()
+                with open(built['file'], 'rb') as source:
+                    shutil.copyfileobj(source, self.wfile, 1024 * 1024)
+            finally:
+                shutil.rmtree(built['holding'], ignore_errors=True)
 
         def _send_plane(self, ident, name, query):
             from flimkit_bridge import dataset_routes as routes

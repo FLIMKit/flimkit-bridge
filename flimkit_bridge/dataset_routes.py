@@ -510,6 +510,121 @@ def run_pipeline(state, payload):
             'basename': basename, 'n_tiles': n_tiles, 'params_used': params}
 
 
+def zstack_defaults(state):
+    from flimkit_bridge import zstack
+    return zstack.defaults()
+
+
+def scan_zstack(state, payload):
+    from flimkit_bridge import zstack
+    directory = (payload or {}).get('ptu_dir') or (payload or {}).get('path')
+    if not directory:
+        raise RouteError(400, 'a ptu_dir is required, the folder holding the slices')
+    try:
+        groups = zstack.scan(directory)
+    except FileNotFoundError as exc:
+        raise RouteError(404, str(exc))
+    except Exception as exc:
+        raise RouteError(400, str(exc))
+    from flimkit_bridge import volumes
+    return {'ptu_dir': str(directory), 'stacks': groups,
+            'n_stacks': len(groups),
+            'n_slices': sum(group['n_slices'] for group in groups),
+            'volume_formats': list(volumes.FORMATS)}
+
+
+def run_zstack(state, payload):
+    from flimkit_bridge import zstack
+    jobs = _jobs(state)
+    payload = payload or {}
+    directory = payload.get('ptu_dir') or payload.get('path')
+    if not directory:
+        raise RouteError(400, 'a ptu_dir is required, the folder holding the slices')
+    try:
+        params = zstack.merge_params(payload.get('params'))
+    except ValueError as exc:
+        raise RouteError(400, str(exc))
+    try:
+        ptu_dir, output_dir, groups = zstack.resolve(
+            directory, payload.get('output_dir'))
+    except FileNotFoundError as exc:
+        raise RouteError(404, str(exc))
+    except ValueError as exc:
+        raise RouteError(400, str(exc))
+    args = zstack.build_args(ptu_dir, output_dir, params)
+    n_slices = sum(group['n_slices'] for group in groups)
+
+    def work(progress, cancel):
+        progress(0, n_slices,
+                 f'{len(groups)} z-stack(s) over {n_slices} slices')
+        result = zstack.run(args, progress, cancel)
+        if cancel.is_set():
+            return None
+        return zstack.summarise(result, output_dir, groups, params)
+
+    job_id = jobs.submit('zstack_fit', work)
+    return {'job': job_id, 'ptu_dir': str(ptu_dir),
+            'output_dir': str(output_dir),
+            'stacks': [{k: v for k, v in group.items() if k != 'files'}
+                       for group in groups],
+            'n_stacks': len(groups), 'n_slices': n_slices,
+            'params_used': params}
+
+
+ZSTACK_VOLUME_PATH = '/v1/zstack/volume.ome.tif'
+
+
+def zstack_volume(state, query):
+    from flimkit_bridge import volumes, zstack
+    options = {key: values[-1] for key, values in parse_qs(query).items()}
+    group_dir = options.get('group_dir')
+    if not group_dir:
+        raise RouteError(400, 'group_dir is required, one stack of fitted slices')
+    try:
+        z_step = float(options.get('z_step_um', 1.0))
+        side = float(options['pixel_size_um']) if 'pixel_size_um' in options else None
+    except ValueError:
+        raise RouteError(400, 'z_step_um and pixel_size_um must be numbers')
+    try:
+        return zstack.stream_volume(group_dir, label=options.get('label'),
+                                    z_step_um=z_step, pixel_size_um=side)
+    except FileNotFoundError as exc:
+        raise RouteError(404, str(exc))
+    except volumes.NothingToStack as exc:
+        raise RouteError(409, str(exc))
+    except Exception as exc:
+        raise RouteError(500, str(exc))
+
+
+def export_zstack(state, payload):
+    from flimkit_bridge import zstack
+    jobs = _jobs(state)
+    payload = payload or {}
+    group_dir = payload.get('group_dir')
+    if not group_dir:
+        raise RouteError(400, 'a group_dir is required, one stack of fitted slices')
+    from flimkit_bridge import volumes
+    wanted = payload.get('format', 'ome-zarr')
+    if wanted not in volumes.FORMATS:
+        raise RouteError(400, f'format must be one of {list(volumes.FORMATS)}')
+    from pathlib import Path
+    if not Path(group_dir).expanduser().is_dir():
+        raise RouteError(404, f'no such folder: {group_dir}')
+
+    def work(progress, cancel):
+        progress(0, 1, f'writing {wanted}')
+        found = zstack.export(
+            group_dir, label=payload.get('label'),
+            output_dir=payload.get('output_dir'), volume_format=wanted,
+            z_step_um=payload.get('z_step_um', 1.0),
+            pixel_size_um=payload.get('pixel_size_um'))
+        progress(1, 1, 'written')
+        return {'products': [found]}
+
+    job_id = jobs.submit('zstack_export', work)
+    return {'job': job_id, 'group_dir': str(group_dir), 'format': wanted}
+
+
 def fit_pixels(state, ident, payload):
     from flimkit_bridge import fitting
     registry = _registry(state)
